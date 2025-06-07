@@ -1,0 +1,73 @@
+tokenizer:
+  name: "openai-community/gpt2"
+  special_tokens:
+    pad_token: "[PAD]"
+    eos_token: "[EOS]"
+    bos_token: "[BOS]"
+  post_processor:
+    template: "{bos} $A {eos}"
+
+datasets:
+  combined:
+    module: "combined_dataset"
+    class: "PerItemCombineDataset"
+    data_loader:
+      module: "utils"
+      function: "load_and_concatenate_dino_data"
+      args: []
+    text_data_loader:
+      module: "utils"
+      function: "load_and_concatenate_text_only_data"
+      args:
+        - "./data/text_only/train_50M"
+
+dataloaders:
+  batch_size: 64
+  num_workers: 4
+  splits:
+    train: 0.8
+    val: 0.1
+    test: 0.1
+  indices_file: "./data/combined_indices"
+  save_indices: true
+
+model:
+  module: "model"
+  class: "DualStreamTransformer"
+  params:
+    d_model: 768
+    n_head: 8
+    d_hid: 3072
+    num_encoder_layers: 5
+    num_decoder_layers: 8
+    dino_dim: 768
+    dropout: 0.1
+
+trainer:
+  module: "trainers.trainer_combined"
+  class: "Trainer"
+  params:
+    lr: 5e-5
+    weight_decay: 0.01
+    total_steps: 722760
+    text_only_epochs: 5
+    image_caption_epochs: 5
+    clip_grad_norm: 1.0
+    eval_steps: 50000
+    checkpoint_steps: 50000
+    warmup_steps: 7000
+    wandb_project: "dual-stream-model"
+  
+  dataloader_mapping:
+    train_loader: "combined_train"
+    val_loader: "combined_val"
+    test_loader: "combined_test"
+
+training:
+  device: "cuda"
+  seed: 42
+  deterministic: false
+  max_epochs: 20
+  checkpoint_dir: "./checkpoints/combined"
+  run_name: "combined"
+  resume_from: null

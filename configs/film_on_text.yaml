@@ -1,0 +1,80 @@
+tokenizer:
+  name: "openai-community/gpt2"
+  special_tokens:
+    pad_token: "[PAD]"
+    eos_token: "[EOS]"
+    bos_token: "[BOS]"
+  post_processor:
+    template: "{bos} $A {eos}"
+
+datasets:
+  text_only:
+    module: "datasets_def"
+    class: "TextOnlyDataset"
+    data_loader:
+      module: "utils"
+      function: "load_and_concatenate_text_only_data"
+      args:
+        - "./data/text_only/train_50M"
+  
+  image_caption:
+    module: "datasets_def"
+    class: "DINOCaptionDataset"
+    data_loader:
+      module: "utils"
+      function: "load_and_concatenate_dino_data"
+      args: []
+
+dataloaders:
+  batch_size: 64
+  num_workers: 4
+  splits:
+    train: 0.8
+    val: 0.1
+    test: 0.1
+  indices_file: "./data/indices"
+  save_indices: true
+
+model:
+  module: "models.model_film_on_text"
+  class: "DualStreamTransformerFiLMOnText"
+  params:
+    d_model: 768
+    n_head: 8
+    d_hid: 3072
+    num_encoder_layers: 5
+    num_decoder_layers: 8
+    dino_dim: 768
+    dropout: 0.1
+
+trainer:
+  module: "trainer"
+  class: "Trainer"
+  params:
+    lr: 5e-5
+    weight_decay: 0.01
+    total_steps: 1107020
+    text_only_epochs: 10
+    image_caption_epochs: 10
+    clip_grad_norm: 1.0
+    eval_steps: 50000
+    checkpoint_steps: 50000
+    warmup_steps: 12000
+    wandb_project: "dual-stream-model"
+  
+  dataloader_mapping:
+    text_train_loader: "text_only_train"
+    text_val_loader: "text_only_val"
+    text_test_loader: "text_only_test"
+    image_caption_train_loader: "image_caption_train"
+    image_caption_val_loader: "image_caption_val"
+    image_caption_test_loader: "image_caption_test"
+
+training:
+  device: "cuda"
+  seed: 42
+  deterministic: false
+  max_epochs: 20
+  checkpoint_dir: "./checkpoints/film_on_image"
+  run_name: "film_on_image"
+  resume_from: null
