@@ -1,33 +1,48 @@
-from model import *
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn import TransformerEncoder, TransformerEncoderLayer
+import math
 
 
-class DualStreamTransformerWithLCG(DualStreamTransformer):
+class DualStreamTransformer(nn.Module):
     def __init__(
         self,
         vocab_size: int,
         d_model: int = 768,
-        n_head: int = 8,
+        n_head: int = 6,
         d_hid: int = 768,
-        num_encoder_layers: int = 5,
-        num_decoder_layers: int = 8,
+        num_encoder_layers: int = 4,
+        num_decoder_layers: int = 4,
         dino_dim: int = 768,
         dropout: float = 0.1,
     ):
-        super().__init__(
-            vocab_size=vocab_size,
-            d_model=d_model,
-            n_head=n_head,
-            d_hid=d_hid,
-            num_encoder_layers=num_encoder_layers,
-            num_decoder_layers=num_decoder_layers,
-            dino_dim=dino_dim,
-            dropout=dropout,
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.d_model = d_model
+        self.n_head = n_head
+        self.d_hid = d_hid
+        self.num_encoder_layers = num_encoder_layers
+        self.num_decoder_layers = num_decoder_layers
+        self.dino_dim = dino_dim
+        self.dropout = dropout
+
+        self.text_embedding = SimpleTextEmbedding(vocab_size, d_model)
+        self.image_embedding = DinoImageEmbedding(dino_dim, d_model)
+
+        self.image_encoder = Encoder(
+            d_model, n_head, d_hid, num_encoder_layers, dropout
         )
+
+        self.decoder = MultimodalDecoder(
+            d_model, n_head, d_hid, num_decoder_layers, dropout
+        )
+
+        self.output_layer = nn.Linear(d_model, vocab_size)
 
         self.output_layer.weight = self.text_embedding.token_embedding.weight
 
-        self.lcg_loss = self.LCGLoss(d_model)
+        self.lcg_loss = LCGLoss(d_model)
 
     def forward(
         self,
@@ -80,277 +95,341 @@ class DualStreamTransformerWithLCG(DualStreamTransformer):
 
         return output
 
-    class LCGLoss(nn.Module):
-        def __init__(self, d_model):
-            super().__init__()
 
-            self.d_model = d_model
-            self.tau = nn.Parameter(torch.ones(1))
+class LCGLoss(nn.Module):
+    def __init__(self, d_model):
+        super().__init__()
 
-            self.MV = nn.Linear(d_model, d_model, bias=False)
-            self.ML = nn.Linear(d_model, d_model, bias=False)
+        self.d_model = d_model
+        self.tau = nn.Parameter(torch.ones(1))
 
-        # def forward(self, text_features, image_features, padding_mask=None):
-        #     batch_size, seq_len, _ = text_features.size()
+        self.MV = nn.Linear(d_model, d_model, bias=False)
+        self.ML = nn.Linear(d_model, d_model, bias=False)
 
-        #     text_projected = self.ML(text_features)
-        #     image_projected = self.MV(image_features)
+    # def forward(self, text_features, image_features, padding_mask=None):
+    #     batch_size, seq_len, _ = text_features.size()
 
-        #     valid_mask = (~padding_mask) if padding_mask is not None else torch.ones(batch_size, seq_len, dtype=torch.bool, device=text_features.device)
+    #     text_projected = self.ML(text_features)
+    #     image_projected = self.MV(image_features)
 
-        #     loss = 0.0
+    #     valid_mask = (~padding_mask) if padding_mask is not None else torch.ones(batch_size, seq_len, dtype=torch.bool, device=text_features.device)
 
-        #     for i in range(batch_size):
-        #         image_i = image_projected[i]
+    #     loss = 0.0
 
-        #         for j in range(seq_len):
-        #             if not valid_mask[i, j]:
-        #                 continue
+    #     for i in range(batch_size):
+    #         image_i = image_projected[i]
 
-        #             token_ij = text_projected[i, j]
+    #         for j in range(seq_len):
+    #             if not valid_mask[i, j]:
+    #                 continue
 
-        #             #formula for s(i, j, i) similarity for token j in caption i and image i
-        #             s_iji = torch.dot(image_i, token_ij) / self.tau
+    #             token_ij = text_projected[i, j]
 
-        #             first_term_denom = 0.0
+    #             s_iji = torch.dot(image_i, token_ij) / self.tau
 
-        #             for k in range(batch_size):
-        #                 if not valid_mask[k, j]:
-        #                     continue
-        #                 s_kji = torch.dot(image_projected[k], token_ij) / self.tau
-        #                 first_term_denom += torch.exp(s_kji)
+    #             first_term_denom = 0.0
 
-        #             #formula for neg(i, j) = exp(s(i,j,i)) + sum_k sum_o (1-delta_i(k))*exp(s(i,o,k))
-        #             neg_term = torch.exp(s_iji)
+    #             for k in range(batch_size):
+    #                 if not valid_mask[k, j]:
+    #                     continue
+    #                 s_kji = torch.dot(image_projected[k], token_ij) / self.tau
+    #                 first_term_denom += torch.exp(s_kji)
 
-        #             for k in range(batch_size):
-        #                 if k == i:
-        #                     continue
-        #                 for o in range(seq_len):
-        #                     if not valid_mask[k, o]:
-        #                         continue
+    #             neg_term = torch.exp(s_iji)
 
-        #                     s_iok = torch.dot(image_i, text_projected[k, o]) /self.tau
-        #                     neg_term += torch.exp(s_iok)
+    #             for k in range(batch_size):
+    #                 if k == i:
+    #                     continue
+    #                 for o in range(seq_len):
+    #                     if not valid_mask[k, o]:
+    #                         continue
 
-        #             first_term_loss = -torch.log(torch.exp(s_iji) / first_term_denom)
-        #             second_term_loss = -torch.log(torch.exp(s_iji) / neg_term)
+    #                     s_iok = torch.dot(image_i, text_projected[k, o]) /self.tau
+    #                     neg_term += torch.exp(s_iok)
 
-        #             loss += 0.5 * (first_term_loss + second_term_loss)
+    #             first_term_loss = -torch.log(torch.exp(s_iji) / first_term_denom)
+    #             second_term_loss = -torch.log(torch.exp(s_iji) / neg_term)
 
-        #     num_valid_tokens = valid_mask.sum().item()
-        #     if num_valid_tokens > 0:
-        #         loss = loss/num_valid_tokens
+    #             loss += 0.5 * (first_term_loss + second_term_loss)
 
-        #     return loss
+    #     num_valid_tokens = valid_mask.sum().item()
+    #     if num_valid_tokens > 0:
+    #         loss = loss/num_valid_tokens
 
-        def forward(self, text_features, image_features, padding_mask=None):
-            batch_size, seq_len, _ = text_features.size()
-            device = text_features.device
+    #     return loss
 
-            # clamp temperature because of traininf instability
-            tau = torch.clamp(self.tau, min=0.05, max=2.0)
+    def forward(self, text_features, image_features, padding_mask=None):
+        batch_size, seq_len, _ = text_features.size()
+        device = text_features.device
 
-            # from the paper, the ML and MV projection matrices
-            text_proj = self.ML(text_features)
-            image_proj = self.MV(image_features)
+        # clamp temperature because of traininf instability
+        tau = torch.clamp(self.tau, min=0.05, max=2.0)
 
-            # create valid tokens mask aka attention mask
-            if padding_mask is None:
-                valid = torch.ones(batch_size, seq_len, dtype=torch.bool, device=device)
-            else:
-                valid = ~padding_mask
+        # the ML and MV projection matrices
+        text_proj = self.ML(text_features)
+        image_proj = self.MV(image_features)
 
-            # matching score s_iji between image i and token j in caption i, computes for all i,j
-            s_iji = torch.einsum("bd,bld->bl", image_proj, text_proj) / tau
+        # create valid tokens mask aka attention mask
+        if padding_mask is None:
+            valid = torch.ones(batch_size, seq_len, dtype=torch.bool, device=device)
+        else:
+            valid = ~padding_mask
 
-            # matching score s_kji between between image k and token j in caption i, computes for all i,j,k
-            s_kji = torch.einsum("ild,kd->ilk", text_proj, image_proj) / tau
+        # matching score s_iji between image i and token j in caption i, computes for all i,j
+        s_iji = torch.einsum("bd,bld->bl", image_proj, text_proj) / tau
 
-            # attention mask for valid tokens in the other captions
-            mask_kj = valid.t()[None].expand(batch_size, seq_len, batch_size)
-            s_kji = s_kji.masked_fill(~mask_kj, float("-inf"))
-            denom_log = torch.logsumexp(s_kji, dim=2)
+        # matching score s_kji between between image k and token j in caption i, computes for all i,j,k
+        s_kji = torch.einsum("ild,kd->ilk", text_proj, image_proj) / tau
 
-            # calculating neg
-            s_iok = torch.einsum("id,kld->ikl", image_proj, text_proj) / tau
-            mask_ko = valid[None].expand(batch_size, batch_size, seq_len)
-            # mask_neq is 0 on diagonal and 1 elsewhere
-            mask_neq = (
-                ~torch.eye(batch_size, device=device, dtype=torch.bool)
-            ).unsqueeze(-1)
-            # exclude k==i and padded tokens
-            mask_x = mask_ko & mask_neq
-            s_iok_f = s_iok.masked_fill(~mask_x, float("-inf")).view(batch_size, -1)
-            cross_log = torch.logsumexp(s_iok_f, dim=1)
-            neg_log = torch.logaddexp(s_iji, cross_log.unsqueeze(1))
+        # attention mask for valid tokens in the other captions
+        mask_kj = valid.t()[None].expand(batch_size, seq_len, batch_size)
+        s_kji = s_kji.masked_fill(~mask_kj, float("-inf"))
+        denom_log = torch.logsumexp(s_kji, dim=2)
 
-            # clamp -inf to zero in masked positions just in case
-            denom_log = torch.where(valid, denom_log, torch.zeros_like(denom_log))
-            neg_log = torch.where(valid, neg_log, torch.zeros_like(neg_log))
+        # calculating neg
+        s_iok = torch.einsum("id,kld->ikl", image_proj, text_proj) / tau
+        mask_ko = valid[None].expand(batch_size, batch_size, seq_len)
+        # mask_neq is 0 on diagonal and 1 elsewhere
+        mask_neq = (~torch.eye(batch_size, device=device, dtype=torch.bool)).unsqueeze(
+            -1
+        )
+        # exclude k=i and padded tokens
+        mask_x = mask_ko & mask_neq
+        s_iok_f = s_iok.masked_fill(~mask_x, float("-inf")).view(batch_size, -1)
+        cross_log = torch.logsumexp(s_iok_f, dim=1)
+        neg_log = torch.logaddexp(s_iji, cross_log.unsqueeze(1))
 
-            # first and seconde term of eq, in log calculations for stability
-            f1 = denom_log - s_iji
-            f2 = neg_log - s_iji
-            loss_mat = 0.5 * (f1 + f2)
+        # clamp -inf to zero in masked positions just in case
+        denom_log = torch.where(valid, denom_log, torch.zeros_like(denom_log))
+        neg_log = torch.where(valid, neg_log, torch.zeros_like(neg_log))
 
-            # final formula
-            loss = loss_mat[valid].sum() / valid.sum()
-            return loss
+        # first and seconde term of eq, in log calculations for stability
+        f1 = denom_log - s_iji
+        f2 = neg_log - s_iji
+        loss_mat = 0.5 * (f1 + f2)
 
-    class MultimodalDecoderLayer(nn.Module):
-        def __init__(
-            self,
-            d_model: int,
-            n_head: int,
-            d_hid: int,
-            dropout: float = 0.1,
-            narrow_attention: bool = False,
-        ):
-            super().__init__()
-            self.narrow_attention = narrow_attention
-            # Self Attention
-            self.self_attn = nn.MultiheadAttention(
-                d_model, n_head, dropout=dropout, batch_first=True
+        loss = loss_mat[idx].sum() / idx.sum()
+        return loss
+
+
+class SimpleTextEmbedding(nn.Module):
+    def __init__(self, vocab_size, d_model, max_len=128, dropout=0.1):
+        super().__init__()
+        self.token_embedding = nn.Embedding(vocab_size, d_model)
+        self.position_embedding = nn.Embedding(max_len, d_model)
+        self.layer_norm = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(p=dropout)
+        self.d_model = d_model
+
+    def forward(self, x):
+        batch_size, seq_len = x.size()
+
+        positions = (
+            torch.arange(seq_len, device=x.device)
+            .unsqueeze(0)
+            .expand(batch_size, seq_len)
+        )
+        scale = math.sqrt(self.d_model)
+
+        token_emb = self.token_embedding(x) * scale
+        pos_emb = self.position_embedding(positions)
+
+        embeddings = self.dropout(token_emb + pos_emb)
+
+        return self.layer_norm(embeddings)
+
+
+class DinoImageEmbedding(nn.Module):
+    def __init__(self, dino_dim, d_model):
+        super().__init__()
+        self.projection_layer = nn.Linear(dino_dim, d_model)
+
+    def forward(self, x):
+        return self.projection_layer(x.unsqueeze(1))
+
+
+class Encoder(nn.Module):
+    def __init__(
+        self, d_model: int, n_head: int, d_hid: int, n_layers: int, dropout: float = 0.1
+    ):
+        super().__init__()
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model, n_head, d_hid, dropout, activation="gelu", batch_first=True
+        )
+        self.encoder = nn.TransformerEncoder(encoder_layer, n_layers)
+
+    def forward(self, src, src_mask=None, src_key_padding_mask=None):
+        return self.encoder(src, src_mask, src_key_padding_mask)
+
+
+class DynamicGating(nn.Module):
+    def __init__(self, d_model: int, dropout: float = 0.1):
+        super().__init__()
+        self.gate = nn.Linear(d_model * 2, d_model)
+        self.dropout = nn.Dropout(dropout)
+        self.layer_norm = nn.LayerNorm(d_model)
+
+    def forward(self, text_features, image_features):
+        if image_features is None:
+            return text_features
+
+        combined = torch.cat([text_features, image_features], dim=-1)
+
+        gate = torch.sigmoid(self.gate(combined))
+
+        fused = gate * text_features + (1 - gate) * image_features
+
+        fused = self.layer_norm(self.dropout(fused))
+
+        return fused
+
+
+class MultimodalDecoderLayer(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        n_head: int,
+        d_hid: int,
+        dropout: float = 0.1,
+        narrow_attention: bool = False,
+    ):
+        super().__init__()
+        self.narrow_attention = narrow_attention
+        self.self_attn = nn.MultiheadAttention(
+            d_model, n_head, dropout=dropout, batch_first=True
+        )
+        self.cross_attn_txt_image = nn.MultiheadAttention(
+            d_model, n_head, dropout=dropout, batch_first=True
+        )
+
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.norm3 = nn.LayerNorm(d_model)
+
+        self.dropout = nn.Dropout(dropout)
+
+        self.gate = DynamicGating(d_model, dropout)
+
+        self.ff = nn.Sequential(
+            nn.Linear(d_model, d_hid),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_hid, d_model),
+            nn.Dropout(dropout),
+        )
+
+    def forward(
+        self,
+        tgt,
+        image_memory,
+        tgt_mask=None,
+        tgt_key_padding_mask=None,
+        return_first_layer=False,
+    ):
+        # seq_len = tgt.size(1)
+        # def make_local_attention_mask(seq_len: int, window: int, device):
+        #     # idx[i] = i
+        #     idx = torch.arange(seq_len, device=device)
+
+        #     i = idx.view(-1, 1)   # [[0],[1],…,[L-1]]
+        #     j = idx.view(1, -1)   # [[0,1,…,L-1]]
+
+        #     # mask for j is in the future (j > i) or in the past before window (i-j > window)
+        #     mask = (j > i) | ((i - j) > window)
+
+        #     return mask
+
+        # if self.narrow_attention:
+        #     narrow_mask = make_local_attention_mask(seq_len, window=3, device=tgt.device)
+        #     tgt_norm = self.norm1(tgt)
+
+        #     self_attn_output, _ = self.self_attn(tgt_norm, tgt_norm, tgt_norm, key_padding_mask=tgt_key_padding_mask, attn_mask=narrow_mask, is_causal=False)
+
+        #     # replace with 0s in the self attention where quey is padding, otherwise you get nans and training instability
+        #     if tgt_key_padding_mask is not None:
+        #         pad_q = tgt_key_padding_mask.unsqueeze(-1)
+        #         self_attn_output = self_attn_output.masked_fill(pad_q, 0.0)
+
+        #     tgt = tgt + self.dropout(self_attn_output)
+        #     first_layer_output = tgt.clone()
+        # else:
+        #     first_layer_output = None
+
+        tgt_norm = self.norm1(tgt)
+
+        self_attn_output, _ = self.self_attn(
+            tgt_norm,
+            tgt_norm,
+            tgt_norm,
+            key_padding_mask=tgt_key_padding_mask,
+            attn_mask=tgt_mask,
+            is_causal=True,
+        )
+        first_layer_output = tgt.clone()
+        tgt = tgt + self.dropout(self_attn_output)
+
+        if not (self.narrow_attention) and image_memory is not None:
+            tgt_norm = self.norm2(tgt)
+            cross_attn_output, _ = self.cross_attn_txt_image(
+                tgt_norm, image_memory, image_memory
             )
-            # Cross Attention with Image
-            self.cross_attn_txt_image = nn.MultiheadAttention(
-                d_model, n_head, dropout=dropout, batch_first=True
-            )
+            cross_attn_output = self.dropout(cross_attn_output)
 
-            self.norm1 = nn.LayerNorm(d_model)
-            self.norm2 = nn.LayerNorm(d_model)
-            self.norm3 = nn.LayerNorm(d_model)
+            fused = self.gate(tgt_norm, cross_attn_output)
+            tgt = tgt + fused
 
-            self.dropout = nn.Dropout(dropout)
+        tgt_norm = self.norm3(tgt)
+        ff_output = self.ff(tgt_norm)
+        tgt = tgt + self.dropout(ff_output)
 
-            # Gating
-            self.gate = self.DynamicGating(d_model, dropout)
+        return (tgt, first_layer_output) if return_first_layer else tgt
 
-            self.ff = nn.Sequential(
-                nn.Linear(d_model, d_hid),
-                nn.GELU(),
-                nn.Dropout(dropout),
-                nn.Linear(d_hid, d_model),
-                nn.Dropout(dropout),
-            )
 
-        def forward(
-            self,
-            tgt,
-            image_memory,
-            tgt_mask=None,
-            tgt_key_padding_mask=None,
-            return_first_layer=False,
-        ):
-            # seq_len = tgt.size(1)
-            # def make_local_attention_mask(seq_len, window):
-            #     # idx[i] = i
-            #     idx = torch.arange(seq_len, device=device)
-
-            #     i = idx.view(-1, 1)   # [[0],[1],…,[L-1]]
-            #     j = idx.view(1, -1)   # [[0,1,…,L-1]]
-
-            #     # mask for j is in the future (j > i) or in the past before window (i-j > window)
-            #     mask = (j > i) | ((i - j) > window)
-
-            #     return mask
-
-            # if self.narrow_attention:
-            #     narrow_mask = make_local_attention_mask(seq_len, window=3, device=tgt.device)
-            #     tgt_norm = self.norm1(tgt)
-
-            #     self_attn_output, _ = self.self_attn(tgt_norm, tgt_norm, tgt_norm, key_padding_mask=tgt_key_padding_mask, attn_mask=narrow_mask, is_causal=False)
-
-            #     # replace with 0s in the self attention where quey is padding, otherwise you get nans and training instability
-            #     if tgt_key_padding_mask is not None:
-            #         pad_q = tgt_key_padding_mask.unsqueeze(-1)
-            #         self_attn_output = self_attn_output.masked_fill(pad_q, 0.0)
-
-            #     tgt = tgt + self.dropout(self_attn_output)
-            #     first_layer_output = tgt.clone()
-            # else:
-            #     first_layer_output = None
-
-            tgt_norm = self.norm1(tgt)
-
-            self_attn_output, _ = self.self_attn(
-                tgt_norm,
-                tgt_norm,
-                tgt_norm,
-                key_padding_mask=tgt_key_padding_mask,
-                attn_mask=tgt_mask,
-                is_causal=True,
-            )
-            first_layer_output = tgt.clone()
-            tgt = tgt + self.dropout(self_attn_output)
-
-            if not (self.narrow_attention) and image_memory is not None:
-                tgt_norm = self.norm2(tgt)
-                cross_attn_output, _ = self.cross_attn_txt_image(
-                    tgt_norm, image_memory, image_memory
+class MultimodalDecoder(nn.Module):
+    def __init__(
+        self, d_model: int, n_head: int, d_hid: int, n_layers: int, dropout: float = 0.1
+    ):
+        super().__init__()
+        self.layers = nn.ModuleList(
+            [
+                MultimodalDecoderLayer(
+                    d_model, n_head, d_hid, dropout, narrow_attention=(i == 0)
                 )
-                cross_attn_output = self.dropout(cross_attn_output)
+                for i in range(n_layers)
+            ]
+        )
 
-                fused = self.gate(tgt_norm, cross_attn_output)
-                tgt = tgt + fused
+    def generate_square_subsequent_mask(self, size):
+        mask = torch.triu(torch.ones(size, size), diagonal=1).bool()
+        return mask
 
-            tgt_norm = self.norm3(tgt)
-            ff_output = self.ff(tgt_norm)
-            tgt = tgt + self.dropout(ff_output)
-
-            return (tgt, first_layer_output) if return_first_layer else tgt
-
-    class MultimodalDecoder(nn.Module):
-        def __init__(
-            self,
-            d_model: int,
-            n_head: int,
-            d_hid: int,
-            n_layers: int,
-            dropout: float = 0.1,
-        ):
-            super().__init__()
-            self.layers = nn.ModuleList(
-                [
-                    self.MultimodalDecoderLayer(
-                        d_model, n_head, d_hid, dropout, narrow_attention=(i == 0)
-                    )
-                    for i in range(n_layers)
-                ]
-            )
-
-        def generate_square_subsequent_mask(self, size):
-            mask = torch.triu(torch.ones(size, size), diagonal=1).bool()
-            return mask
-
-        def forward(
-            self,
-            tgt,
-            image_memory,
-            tgt_mask,
-            tgt_key_padding_mask=None,
-            return_first_layer=False,
-        ):
-            output = tgt
-            first_layer_output = None
-            for i, layer in enumerate(self.layers):
-                if i == 0 and return_first_layer:
-                    output, first_layer_output = layer(
-                        output,
-                        image_memory,
-                        tgt_mask,
-                        tgt_key_padding_mask,
-                        (return_first_layer and i == 0),
-                    )
-                else:
-                    output = layer(
-                        output,
-                        image_memory,
-                        tgt_mask,
-                        tgt_key_padding_mask,
-                        (return_first_layer and i == 0),
-                    )
-            if return_first_layer:
-                return output, first_layer_output
-            return output
+    def forward(
+        self,
+        tgt,
+        image_memory,
+        tgt_mask,
+        tgt_key_padding_mask=None,
+        return_first_layer=False,
+    ):
+        output = tgt
+        first_layer_output = None
+        for i, layer in enumerate(self.layers):
+            if i == 0 and return_first_layer:
+                output, first_layer_output = layer(
+                    output,
+                    image_memory,
+                    tgt_mask,
+                    tgt_key_padding_mask,
+                    (return_first_layer and i == 0),
+                )
+            else:
+                output = layer(
+                    output,
+                    image_memory,
+                    tgt_mask,
+                    tgt_key_padding_mask,
+                    (return_first_layer and i == 0),
+                )
+        if return_first_layer:
+            return output, first_layer_output
+        return output

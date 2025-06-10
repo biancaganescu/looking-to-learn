@@ -9,19 +9,19 @@ tokenizer:
 
 datasets:
   text_only:
-    module: "datasets_def"
+    module: "datasets.datasets_def"
     class: "TextOnlyDataset"
     data_loader:
-      module: "utils"
+      module: "datasets.utils"
       function: "load_and_concatenate_text_only_data"
       args:
         - "./data/text_only/train_50M"
   
   image_caption:
-    module: "datasets_def"
+    module: "datasets.datasets_def"
     class: "DINOCaptionDataset"
     data_loader:
-      module: "utils"
+      module: "datasets.utils"
       function: "load_and_concatenate_dino_data"
       args: []
 
@@ -37,7 +37,7 @@ dataloaders:
 
 model:
   module: "models.model_gate_hard_per_feature"
-  class: "DualStreamTransformerGateHardPerFeature"
+  class: "DualStreamTransformer"
   params:
     d_model: 768
     n_head: 8
@@ -48,7 +48,7 @@ model:
     dropout: 0.1
 
 trainer:
-  module: "trainer"
+  module: "trainers.trainer"
   class: "Trainer"
   params:
     lr: 5e-5
@@ -72,9 +72,5 @@ trainer:
 
 training:
   device: "cuda"
-  seed: 42
-  deterministic: false
-  max_epochs: 20
   checkpoint_dir: "./checkpoints/gate_hard_per_feature"
-  run_name: "gate_hard_per_feature"
-  resume_from: null
+  wandb_run_name: "dual_stream"

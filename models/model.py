@@ -43,7 +43,6 @@ class DualStreamTransformer(nn.Module):
     ):
         embedded = self.text_embedding(input_ids)
 
-        # Image Embedding + Encoding (if use_image)
         if (
             use_image
             and dino_embedding is not None
@@ -126,7 +125,7 @@ class DualStreamTransformer(nn.Module):
     class DynamicGating(nn.Module):
         def __init__(self, d_model: int, dropout: float = 0.1):
             super().__init__()
-            self.gate_fc = nn.Linear(d_model * 2, d_model)
+            self.gate = nn.Linear(d_model * 2, d_model)
             self.dropout = nn.Dropout(dropout)
             self.layer_norm = nn.LayerNorm(d_model)
 
@@ -136,7 +135,7 @@ class DualStreamTransformer(nn.Module):
 
             combined = torch.cat([text_features, image_features], dim=-1)
 
-            gate = torch.sigmoid(self.gate_fc(combined))
+            gate = torch.sigmoid(self.gate(combined))
 
             fused = gate * text_features + (1 - gate) * image_features
 
@@ -147,11 +146,9 @@ class DualStreamTransformer(nn.Module):
     class MultimodalDecoderLayer(nn.Module):
         def __init__(self, d_model: int, n_head: int, d_hid: int, dropout: float = 0.1):
             super().__init__()
-            # Text Self Attention
             self.self_attn = nn.MultiheadAttention(
                 d_model, n_head, dropout=dropout, batch_first=True
             )
-            # Cross Attention with Image
             self.cross_attn_txt_image = nn.MultiheadAttention(
                 d_model, n_head, dropout=dropout, batch_first=True
             )
@@ -162,8 +159,7 @@ class DualStreamTransformer(nn.Module):
 
             self.dropout = nn.Dropout(dropout)
 
-            # Gating
-            self.gate = self.DynamicGating(d_model, dropout)
+            self.gate = DualStreamTransformer.DynamicGating(d_model, dropout)
 
             self.ff = nn.Sequential(
                 nn.Linear(d_model, d_hid),
@@ -174,7 +170,6 @@ class DualStreamTransformer(nn.Module):
             )
 
         def forward(self, tgt, image_memory, tgt_mask=None, tgt_key_padding_mask=None):
-            # Masked Self-Attention (causal)
             tgt_norm = self.norm1(tgt)
             self_attn_output, _ = self.self_attn(
                 tgt_norm,
@@ -187,7 +182,6 @@ class DualStreamTransformer(nn.Module):
 
             tgt = tgt + self.dropout(self_attn_output)
 
-            # Cross-Attention to image + Gated Fusion
             if image_memory is not None:
                 tgt_norm = self.norm2(tgt)
                 cross_attn_output, _ = self.cross_attn_txt_image(
@@ -198,7 +192,6 @@ class DualStreamTransformer(nn.Module):
                 fused = self.gate(tgt_norm, cross_attn_output)
                 tgt = tgt + fused
 
-            # Feedforward
             tgt_norm = self.norm3(tgt)
             ff_output = self.ff(tgt_norm)
             tgt = tgt + self.dropout(ff_output)
@@ -217,7 +210,9 @@ class DualStreamTransformer(nn.Module):
             super().__init__()
             self.layers = nn.ModuleList(
                 [
-                    self.MultimodalDecoderLayer(d_model, n_head, d_hid, dropout)
+                    DualStreamTransformer.MultimodalDecoderLayer(
+                        d_model, n_head, d_hid, dropout
+                    )
                     for _ in range(n_layers)
                 ]
             )

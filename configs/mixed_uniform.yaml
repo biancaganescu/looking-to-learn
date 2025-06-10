@@ -9,14 +9,14 @@ tokenizer:
 
 datasets:
   combined:
-    module: "combined_dataset"
+    module: "datasets.combined_dataset"
     class: "PerItemCombineDataset"
     data_loader:
       module: "utils"
       function: "load_and_concatenate_dino_data"
       args: []
     text_data_loader:
-      module: "utils"
+      module: "datasets.utils"
       function: "load_and_concatenate_text_only_data"
       args:
         - "./data/text_only/train_50M"
@@ -65,9 +65,5 @@ trainer:
 
 training:
   device: "cuda"
-  seed: 42
-  deterministic: false
-  max_epochs: 20
-  checkpoint_dir: "./checkpoints/combined"
-  run_name: "combined"
-  resume_from: null
+  checkpoint_dir: "./checkpoints/mixed_uniform"
+  wandb_run_name: "dual_stream"

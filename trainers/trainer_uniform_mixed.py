@@ -96,7 +96,6 @@ class Trainer:
         self._setup_wandb(wandb_project, wandb_run_name, wandb_config)
 
         self.start_epoch = 0
-        # logs
         self.global_step = 0
         self.best_val_loss = float("inf")
         self.patience_counter = 0
@@ -258,7 +257,6 @@ class Trainer:
             #     break
             torch.cuda.empty_cache()
 
-        # Final evaluation
         self.evaluate_loader(self.test_loader, prefix="test")
         self.save_checkpoint(epoch=self.max_epochs - 1, is_best=False)
         total_time = time.time() - start_time

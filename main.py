@@ -34,11 +34,7 @@ def load_config(config_path):
 
 
 def dynamic_import(module_path, class_name):
-    try:
-        module = importlib.import_module(module_path)
-        return getattr(module, class_name)
-    except (ImportError, AttributeError) as e:
-        raise ImportError(f"Failed to import {class_name} from {module_path}: {e}")
+    return getattr(importlib.import_module(module_path), class_name)
 
 
 def setup_tokenizer(tokenizer_config):
@@ -114,14 +110,19 @@ def create_dataloaders(datasets, config):
 
         splits_loaded = False
         if indices_file:
-            indices_path = f"{indices_file}_{dataset_name}.json"
+            indices_path = f"{indices_file}.json"
 
             with open(indices_path, "r") as f:
                 indices = json.load(f)
 
-            train_split = torch.utils.data.Subset(dataset, indices["train"])
-            val_split = torch.utils.data.Subset(dataset, indices["val"])
-            test_split = torch.utils.data.Subset(dataset, indices["test"])
+            print(dataset_name)
+            if dataset_name == "text_only":
+                prefix = "text"
+            elif dataset_name == "image_caption":
+                prefix = "image"
+            train_split = torch.utils.data.Subset(dataset, indices[f"{prefix}_train"])
+            val_split = torch.utils.data.Subset(dataset, indices[f"{prefix}_val"])
+            test_split = torch.utils.data.Subset(dataset, indices[f"{prefix}_test"])
             splits_loaded = True
 
         if not splits_loaded:
@@ -141,7 +142,6 @@ def create_dataloaders(datasets, config):
                 os.makedirs(os.path.dirname(indices_path), exist_ok=True)
                 with open(indices_path, "w") as f:
                     json.dump(indices, f)
-                print(f"Saved split indices to {indices_path}")
 
         dataloaders[f"{dataset_name}_train"] = DataLoader(
             train_split, batch_size=batch_size, shuffle=True, num_workers=num_workers
@@ -180,6 +180,8 @@ def create_trainer(model, dataloaders, config):
     trainer_params["model"] = model
 
     dataloader_mapping = trainer_config.get("dataloader_mapping", {})
+    print(dataloader_mapping)
+    print("data loaders", dataloaders)
     for param_name, dataloader_key in dataloader_mapping.items():
         if dataloader_key in dataloaders:
             trainer_params[param_name] = dataloaders[dataloader_key]
@@ -199,13 +201,13 @@ def create_trainer(model, dataloaders, config):
 
 def main(config_path):
     config = load_config(config_path)
-    print(f"Loaded configuration from:{config_path}")
+    print(f"loaded configuration {config_path}")
 
     seed = config.get("training", {}).get("seed", 42)
     deterministic = config.get("training", {}).get("deterministic", False)
     set_global_seed(seed, deterministic)
 
-    print("Setting up tokenizer")
+    print("Setting tokenizer")
     tokenizer = setup_tokenizer(config.get("tokenizer", {}))
     vocab_size = len(tokenizer)
     print(f"Vocabulary size: {vocab_size}")
@@ -225,22 +227,20 @@ def main(config_path):
         "device", "cuda" if torch.cuda.is_available() else "cpu"
     )
     model = model.to(device)
-    print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"Total params {sum(p.numel() for p in model.parameters()):,}")
 
     print("creating trainer")
     trainer = create_trainer(model, dataloaders, config)
 
     resume_from = config.get("training", {}).get("resume_from")
     if resume_from:
-        print(f"Resuming training from checkpoint: {resume_from}")
+        print(f"resume training from checkpoint {resume_from}")
         trainer.load_checkpoint(resume_from)
 
-    print(
-        f"Starting training at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-    )
+    print(f"start training at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     trainer.train()
     print(
-        f"Training completed at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        f"training finish time at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
 
@@ -248,7 +248,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("config", type=str, help="Path to configuration file")
+    parser.add_argument("config", type=str, help="path to cofig")
     args = parser.parse_args()
 
     main(args.config)

@@ -111,7 +111,6 @@ class Trainer:
         self._setup_wandb(wandb_project, wandb_run_name, wandb_config)
 
         self.start_epoch = 0
-        # logs
         self.global_step = 0
         self.best_val_loss = float("inf")
         self.patience_counter = 0
@@ -164,7 +163,6 @@ class Trainer:
             logits = logits[mask]
             targets = targets[mask]
 
-        # next token prediction loss
         loss_ntp = self.criterion(logits, targets)
 
         # contrastive loss
@@ -324,7 +322,6 @@ class Trainer:
                 #     break
                 torch.cuda.empty_cache()
 
-            # Final evaluation
             if not train_use_image and self.text_test_loader is not None:
                 self.evaluate_loader(
                     self.text_test_loader, use_image=False, prefix="test/text"
