@@ -6,7 +6,7 @@ This repository contains the code to train the dual stream transformer proposed 
 
 ### Prerequisites
 
-Download the training data following the BabyLM Challenge instructions and place it in a folder named `./data/`.
+Download the training data following the BabyLM Challenge instructions[https://babylm.github.io] and place it in a folder named `./data/`.
 
 ### Training
 
@@ -49,3 +49,5 @@ The evaluation code tests gate values against:
 - Imageability
 - Familiarity
 - Age-of-acquisition
+
+To evaluate the model on the BabyLM Challenge benchmarks, clone the lm-evaluation-harness[https://github.com/EleutherAI/lm-evaluation-harness] repository and add the file `dual-stream-transformer/evaluation/lm_harness_wrapper.py` to `lm-evaluation-harness/lm_eval/models` then follow the instructions of the library on how to run the evaluation.
