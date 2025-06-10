@@ -10,9 +10,10 @@ Download the training data following the BabyLM Challenge instructions and place
 
 ### Training
 
-To initialize and train a model, run:
+To initialise and train a model, run:
 
 ```bash
+cd dual-stream-transformer
 python main.py configs/<config.yaml>
 ```
 
