@@ -5,6 +5,7 @@ import sys
 import importlib
 import json
 import yaml
+import argparse
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -29,8 +30,7 @@ def load_config(config_path):
     config_path = Path(config_path)
 
     with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-    return config
+        return yaml.safe_load(f)
 
 
 def dynamic_import(module_path, class_name):
@@ -108,7 +108,6 @@ def create_dataloaders(datasets, config):
         val_size = int(total_size * splits["val"])
         test_size = total_size - train_size - val_size
 
-        splits_loaded = False
         if indices_file:
             indices_path = f"{indices_file}.json"
 
@@ -122,10 +121,8 @@ def create_dataloaders(datasets, config):
                 prefix = "image"
             train_split = torch.utils.data.Subset(dataset, indices[f"{prefix}_train"])
             val_split = torch.utils.data.Subset(dataset, indices[f"{prefix}_val"])
-            test_split = torch.utils.data.Subset(dataset, indices[f"{prefix}_test"])
-            splits_loaded = True
-
-        if not splits_loaded:
+            test_split = torch.utils.data.Subset(dataset, indices[f"{prefix}_test"])     
+        else:
             train_split, val_split, test_split = random_split(
                 dataset,
                 [train_size, val_size, test_size],
@@ -198,16 +195,20 @@ def create_trainer(model, dataloaders, config):
 
     return TrainerClass(**trainer_params)
 
+    
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("config", type=str, help="path/to/cofig")
+    args = parser.parse_args()
 
-def main(config_path):
-    config = load_config(config_path)
-    print(f"loaded configuration {config_path}")
+    config = load_config(args.config)
+    print(f"loaded configuration {args.config}")
 
     seed = config.get("training", {}).get("seed", 42)
     deterministic = config.get("training", {}).get("deterministic", False)
     set_global_seed(seed, deterministic)
 
-    print("Setting tokenizer")
+    print("Setting the tokenizer")
     tokenizer = setup_tokenizer(config.get("tokenizer", {}))
     vocab_size = len(tokenizer)
     print(f"Vocabulary size: {vocab_size}")
@@ -223,9 +224,7 @@ def main(config_path):
     print("creating model")
     model = create_model(config, vocab_size)
 
-    device = config.get("training", {}).get(
-        "device", "cuda" if torch.cuda.is_available() else "cpu"
-    )
+    device = config.get("training", {}).get("device", "cuda")
     model = model.to(device)
     print(f"Total params {sum(p.numel() for p in model.parameters()):,}")
 
@@ -237,18 +236,10 @@ def main(config_path):
         print(f"resume training from checkpoint {resume_from}")
         trainer.load_checkpoint(resume_from)
 
-    print(f"start training at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"start traning at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     trainer.train()
     print(
         f"training finish time at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
 
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("config", type=str, help="path to cofig")
-    args = parser.parse_args()
-
-    main(args.config)

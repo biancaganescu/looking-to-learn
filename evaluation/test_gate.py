@@ -80,9 +80,9 @@ if __name__ == "__main__":
     model_args = checkpoint.get("model_args", {})
 
     model = DualStreamTransformer(**model_args)
-    print("Model args are ", model_args)
+    print("Model args:", model_args)
 
-    print("Global step is ", checkpoint["global_step"])
+    print("Global step:", checkpoint["global_step"])
     model.load_state_dict(checkpoint["model_state_dict"])
     model = model.to(device=device)
     model.eval()
@@ -133,7 +133,7 @@ if __name__ == "__main__":
                 for token in doc:
                     word_to_pos[token.text.lower()] = token.pos_
 
-                for pos in range(1, len(tokens)):  # Skip BOS token
+                for pos in range(1, len(tokens)):
                     if tokens[pos] in tokenizer.all_special_tokens:
                         continue
 

@@ -29,7 +29,7 @@ class TextOnlyDataset(Dataset):
 
         return {
             "text_input": text_input,
-            "text_mask": text_mask,
+            "text_mask": text_mask
         }
 
 
@@ -57,7 +57,7 @@ class DINOCaptionDataset(Dataset):
             truncation=True,
             max_length=self.max_length,
             padding="max_length",
-            add_special_tokens=True,
+            add_special_tokens=True
         )
 
         text_input = encoding.input_ids.squeeze(0)
@@ -67,7 +67,7 @@ class DINOCaptionDataset(Dataset):
         return {
             "text_input": text_input,
             "text_mask": text_mask,
-            "dino_embedding": dino_embedding,
+            "dino_embedding": dino_embedding
         }
 
 
@@ -119,7 +119,7 @@ class UnifiedDataset(Dataset):
             return {
                 "text_input": encoding["input_ids"].squeeze(0),
                 "text_mask": encoding["attention_mask"].squeeze(0),
-                "dino_embedding": torch.zeros(self.dino_dim, dtype=torch.float),
+                "dino_embedding": torch.zeros(self.dino_dim, dtype=torch.float)
             }
         else:
             caption = self.captions[data_idx]
@@ -133,11 +133,11 @@ class UnifiedDataset(Dataset):
                 max_length=self.sequence_length,
                 padding="max_length",
                 return_tensors="pt",
-                add_special_tokens=True,
+                add_special_tokens=True
             )
 
             return {
                 "text_input": encoding["input_ids"].squeeze(0),
                 "text_mask": encoding["attention_mask"].squeeze(0),
-                "dino_embedding": dino_embedding,
+                "dino_embedding": dino_embedding
             }
