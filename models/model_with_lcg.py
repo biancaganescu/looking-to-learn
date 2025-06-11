@@ -115,7 +115,6 @@ class LCGLoss(nn.Module):
     #     valid_mask = (~padding_mask) if padding_mask is not None else torch.ones(batch_size, seq_len, dtype=torch.bool, device=text_features.device)
 
     #     loss = 0.0
-
     #     for i in range(batch_size):
     #         image_i = image_projected[i]
 
@@ -147,8 +146,8 @@ class LCGLoss(nn.Module):
     #                     s_iok = torch.dot(image_i, text_projected[k, o]) /self.tau
     #                     neg_term += torch.exp(s_iok)
 
-    #             first_term_loss = -torch.log(torch.exp(s_iji) / first_term_denom)
-    #             second_term_loss = -torch.log(torch.exp(s_iji) / neg_term)
+    #             first_term_loss = torch.exp(s_iji) / first_term_denom
+    #             second_term_loss = torch.exp(s_iji) / neg_term
 
     #             loss += 0.5 * (first_term_loss + second_term_loss)
 
@@ -184,7 +183,7 @@ class LCGLoss(nn.Module):
         # attention mask for valid tokens in the other captions
         mask_kj = valid.t()[None].expand(batch_size, seq_len, batch_size)
         s_kji = s_kji.masked_fill(~mask_kj, float("-inf"))
-        denom_log = torch.logsumexp(s_kji, dim=2)
+        denom_sum = torch.exp(s_kji).sum(dim=2)
 
         # calculating neg
         s_iok = torch.einsum("id,kld->ikl", image_proj, text_proj) / tau
@@ -196,19 +195,19 @@ class LCGLoss(nn.Module):
         # exclude k=i and padded tokens
         mask_x = mask_ko & mask_neq
         s_iok_f = s_iok.masked_fill(~mask_x, float("-inf")).view(batch_size, -1)
-        cross_log = torch.logsumexp(s_iok_f, dim=1)
-        neg_log = torch.logaddexp(s_iji, cross_log.unsqueeze(1))
+        cross_sum = torch.exp(s_iok_f).sum(dim=1)
+        neg_sum = torch.exp(s_iji) + cross_sum.unsqueeze(1)
+
+        # first and seconde term of eq
+        f1 = torch.exp(s_iji) / denom_sum
+        f2 = torch.exp(s_iji) / neg_sum
 
         # clamp -inf to zero in masked positions just in case
-        denom_log = torch.where(valid, denom_log, torch.zeros_like(denom_log))
-        neg_log = torch.where(valid, neg_log, torch.zeros_like(neg_log))
+        f1 = torch.where(valid, f1, torch.zeros_like(f1))
+        f2 = torch.where(valid, f2, torch.zeros_like(f2))
 
-        # first and seconde term of eq, in log calculations for stability
-        f1 = denom_log - s_iji
-        f2 = neg_log - s_iji
         loss_mat = 0.5 * (f1 + f2)
-
-        loss = loss_mat[idx].sum() / idx.sum()
+        loss = loss_mat.sum() / valid.sum()
         return loss
 
 
