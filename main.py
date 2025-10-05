@@ -121,7 +121,7 @@ def create_dataloaders(datasets, config):
                 prefix = "image"
             train_split = torch.utils.data.Subset(dataset, indices[f"{prefix}_train"])
             val_split = torch.utils.data.Subset(dataset, indices[f"{prefix}_val"])
-            test_split = torch.utils.data.Subset(dataset, indices[f"{prefix}_test"])     
+            test_split = torch.utils.data.Subset(dataset, indices[f"{prefix}_test"])
         else:
             train_split, val_split, test_split = random_split(
                 dataset,
@@ -195,7 +195,7 @@ def create_trainer(model, dataloaders, config):
 
     return TrainerClass(**trainer_params)
 
-    
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("config", type=str, help="path/to/cofig")
@@ -241,5 +241,3 @@ if __name__ == "__main__":
     print(
         f"training finish time at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
-
-

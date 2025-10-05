@@ -126,7 +126,7 @@ class Encoder(nn.Module):
 class DynamicGating(nn.Module):
     def __init__(self, d_model: int, dropout: float = 0.1):
         super().__init__()
-        self.gate = nn.Linear(d_model * 2, d_model * 2)
+        self.gate_fc = nn.Linear(d_model * 2, d_model * 2)
         self.dropout = nn.Dropout(dropout)
         self.layer_norm = nn.LayerNorm(d_model)
         self.init_temperature = 1.0
@@ -154,7 +154,7 @@ class DynamicGating(nn.Module):
 
         combined = torch.cat([text_features, image_features], dim=-1)
 
-        logits = self.gate(combined)
+        logits = self.gate_fc(combined)
         logits = logits.view(-1, logits.size(1), logits.size(2) // 2, 2)
 
         hard = not self.training

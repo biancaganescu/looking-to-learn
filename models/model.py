@@ -125,7 +125,7 @@ class DualStreamTransformer(nn.Module):
     class DynamicGating(nn.Module):
         def __init__(self, d_model: int, dropout: float = 0.1):
             super().__init__()
-            self.gate = nn.Linear(d_model * 2, d_model)
+            self.gate_fc = nn.Linear(d_model * 2, d_model)
             self.dropout = nn.Dropout(dropout)
             self.layer_norm = nn.LayerNorm(d_model)
 
@@ -134,13 +134,9 @@ class DualStreamTransformer(nn.Module):
                 return text_features
 
             combined = torch.cat([text_features, image_features], dim=-1)
-
-            gate = torch.sigmoid(self.gate(combined))
-
+            gate = torch.sigmoid(self.gate_fc(combined))
             fused = gate * text_features + (1 - gate) * image_features
-
             fused = self.layer_norm(self.dropout(fused))
-
             return fused
 
     class MultimodalDecoderLayer(nn.Module):
